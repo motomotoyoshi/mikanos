@@ -2,12 +2,14 @@
 #include <Library/UefiLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/PrintLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/DiskIo2.h>
 #include <Protocol/BlockIo.h>
 #include <Guid/FileInfo.h>
-struct MemoryMap{
+
+struct MemoryMap {
   UINTN buffer_size;
   VOID* buffer;
   UINTN map_size;
@@ -17,8 +19,8 @@ struct MemoryMap{
 };
 
 
-EFI_STATUS GetMemoryMap(struct MemoryMap* map){
-  if (map->buffer == NULL){
+EFI_STATUS GetMemoryMap(struct MemoryMap* map) {
+  if (map->buffer == NULL) {
     return EFI_BUFFER_TOO_SMALL;
   }
 
@@ -128,6 +130,47 @@ EFI_STATUS OpenRootDir(EFI_HANDLE image_handle, EFI_FILE_PROTOCOL** root){
   return EFI_SUCCESS;
 }
 
+EFI_STATUS OpenGOP(EFI_HANDLE image_handle, EFI_GRAPHICS_OUTPUT_PROTOCOL** gop){
+  UINTN num_gop_handles = 0;
+  EFI_HANDLE* gop_handles = NULL;
+  gBS->LocateHandleBuffer(
+    ByProtocol,
+    &gEfiGraphicsOutputProtocolGuid,
+    NULL,
+    &num_gop_handles,
+    &gop_handles);
+
+  gBS->OpenProtocol(
+    gop_handles[0],
+    &gEfiGraphicsOutputProtocolGuid,
+    (VOID**)gop,
+    image_handle,
+    NULL,
+    EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+  FreePool(gop_handles);
+
+  return EFI_SUCCESS;
+}
+
+
+const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt){
+  switch (fmt){
+  case PixelRedGreenBlueReserved8BitPerColor:
+    return L"PixelRedGreenBlueReserved8BitPerColor";
+  case PixelBlueGreenRedReserved8BitPerColor:
+    return L"PixelBlueGreenRedReserved8BitPerColor";
+  case PixelBitMask:
+    return L"PixelBitMask";
+  case PixelBltOnly:
+    return L"PixelBltOnly";
+  case PixelFormatMax:
+    return L"PixwlFormatMax";
+  default:
+    return L"InvalidPixelFormat";
+  }
+}
+
 
 EFI_STATUS EFIAPI UefiMain(
     EFI_HANDLE image_handle,
@@ -150,6 +193,24 @@ EFI_STATUS EFIAPI UefiMain(
   memmap_file->Close(memmap_file);
 
 
+  EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+  OpenGOP(image_handle, &gop);
+  Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
+      gop->Mode->Info->HorizontalResolution,
+      gop->Mode->Info->VerticalResolution,
+      GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
+      gop->Mode->Info->PixelsPerScanLine);
+  Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
+      gop->Mode->FrameBufferBase,
+      gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
+      gop->Mode->FrameBufferSize);
+  
+  UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
+  for(UINTN i =0; i < gop->Mode->FrameBufferSize; ++i){
+    frame_buffer[i] = 255;
+  }
+
+
   EFI_FILE_PROTOCOL* kernel_file;
   root_dir->Open(
     root_dir, &kernel_file, L"\\kernel.elf",
@@ -166,10 +227,10 @@ EFI_STATUS EFIAPI UefiMain(
 
   EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
   gBS->AllocatePages(
-    AllocateAddress, EfiLoaderData,
-    (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+      AllocateAddress, EfiLoaderData,
+      (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
   kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
-  Print(L"Krnel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
+  Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
 
 
 EFI_STATUS status;
@@ -198,26 +259,3 @@ entry_point();
 while (1);
 return EFI_SUCCESS;
 }
-
-// EFI_FILE_PROTOCOL* kernel_file;
-
-// root_dir_Open(
-//     root_dir, &kernel_file, L"\\kernel.elf",
-//     EFI_FILE_MODE_READ, 0);
-
-// UINTN file_info_size = sizeof(EFI_FILE_INFO) + sizeof(CHAR16) * 12;
-// UINT8 file_info_buffer[file_info_size];
-// kernel_file->GetInfo(
-//     kernel_file, &gEfiFileInfoGuid,
-//     &file_info_size, file_info_buffer);
-
-// EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
-// UINTN kernel_file_size = file_info->File_Size;
-
-// EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
-// gBS->AllocatePages(
-//     AllocateAddress, EfiLoaderData,
-//     (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr;
-// kernel_file->Read(kernel_file, $kernel_file_size, (VOID*)kernel_base_addr)
-// Print(L"Kernel: 0x%0lx (%lu bytes)¥n", kernel_base_addr, kernel_file_size);
-// );
