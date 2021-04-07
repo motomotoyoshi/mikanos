@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source ~/edk2/edksetup.sh 
-source ~/osbook/devenv/buildenv.sh
+source /home/vagrant/edk2/edksetup.sh 
+source /home/vagrant/osbook/devenv/buildenv.sh
 
 cd ~/edk2
